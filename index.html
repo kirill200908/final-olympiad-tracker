@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ru">
+<head>
+ <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+ <meta name="theme-color" content="#142b28"><meta name="description" content="Личный журнал задач Codeforces и CSES. Подготовка к IV этапу олимпиады по информатике в Беларуси с опорой на финалы 2024–2026.">
+ <title>Финал — твой олимпиадный прогресс</title>
+ <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="./style.css">
+</head>
+<body>
+ <a href="#main" class="skip">К содержимому</a>
+ <aside class="sidebar">
+  <a href="#overview" class="brand"><img src="./assets/favicon.svg" alt="" width="36" height="36">финал<span>.</span></a>
+  <div class="workspace"><span class="workspace-icon">BY</span><div><strong>Олимпиадный трекер</strong><small>Информатика · Беларусь</small></div></div>
+  <p class="nav-label">ТВОЯ ПОДГОТОВКА</p>
+  <nav aria-label="Основная навигация">
+   <a href="#overview" data-page="overview"><span data-icon="grid"></span>Обзор<span class="nav-dot"></span></a>
+   <a href="#journal" data-page="journal"><span data-icon="book"></span>Журнал задач<span id="nav-count" class="nav-count">0</span></a>
+   <a href="#plan" data-page="plan"><span data-icon="route"></span>План подготовки</a>
+   <a href="#model" data-page="model"><span data-icon="chart"></span>Модель и источники</a>
+  </nav>
+  <div class="sidebar-note"><span data-icon="spark"></span><strong>Каждая задача — шаг вперёд</strong><p>Отмечай решения. Находи пробелы. Готовься осознанно.</p><button id="demo-toggle" class="text-button">Посмотреть пример <span>↗</span></button></div>
+  <div class="sidebar-bottom"><span class="storage-dot"></span><div><strong>Сохранено в браузере</strong><small>Твой прогресс — на этом устройстве</small></div><button class="icon-button" data-action="export" title="Скачать резервную копию" aria-label="Скачать резервную копию"><span data-icon="download"></span></button></div>
+ </aside>
+ <div class="app-shell">
+  <header class="topbar"><div><span class="breadcrumb">Моё пространство</span><span class="slash">/</span><strong id="page-breadcrumb">Обзор</strong></div><div class="topbar-right"><span class="stage-pill"><i></i>IV этап · Беларусь</span><span class="avatar">Я</span></div></header>
+  <div id="demo-banner" class="demo-banner" hidden><strong>Демо: пример журнала</strong><span>Изменения здесь не сохраняются. Твой журнал остаётся на месте.</span><button id="exit-demo">К моим задачам <span>↗</span></button></div>
+  <main id="main" tabindex="-1"></main>
+  <footer>Сделано для твоего следующего шага.<span>Codeforces × CSES · <a href="#model">Как устроена оценка</a></span></footer>
+ </div>
+ <dialog id="task-dialog" aria-labelledby="task-dialog-title">
+  <form id="task-form">
+   <div class="dialog-heading"><div><p class="eyebrow">ПОПОЛНИ СВОЙ ПРОГРЕСС</p><h2 id="task-dialog-title">Ещё одна задача в копилку</h2></div><button type="button" class="icon-button" data-close aria-label="Закрыть">✕</button></div>
+   <fieldset class="platform-picker"><legend class="sr-only">Платформа</legend><label><input type="radio" name="platform" value="cf" checked><span><b class="cf-mini">▥</b>Codeforces</span></label><label><input type="radio" name="platform" value="cses"><span><b class="cses-mini">C</b>CSES</span></label></fieldset>
+   <label class="field-label" for="task-query">Ссылка, номер или название задачи</label>
+   <div class="search-wrap"><span data-icon="search"></span><input id="task-query" placeholder="Например, 1900C или ссылка на задачу" autocomplete="off" maxlength="500"><span id="catalog-status" class="search-caption">Каталог загружается…</span></div>
+   <div id="suggestions" class="suggestions" role="group" aria-label="Найденные задачи" hidden></div>
+   <div class="form-grid"><div><label class="field-label" for="task-id">Номер задачи <span>*</span></label><input id="task-id" name="id" required placeholder="1900C" maxlength="12"></div><div><label class="field-label" for="task-name">Название <span>*</span></label><input id="task-name" name="name" required placeholder="Название задачи" maxlength="180"></div></div>
+   <fieldset class="mode-picker"><legend class="field-label">Как решил?</legend><label><input type="radio" name="mode" value="own" checked><span><b>Самостоятельно</b><small>Без подсказок и разбора</small></span><i>✓</i></label><label><input type="radio" name="mode" value="editorial"><span><b>С разбором</b><small>С подсказкой или редакционным решением</small></span><i>✓</i></label></fieldset>
+   <div class="form-grid thirds"><div><label class="field-label" for="task-rating">Сложность в шкале CF</label><input type="number" id="task-rating" name="rating" min="800" max="4000" step="50" placeholder="Неизвестна"></div><div><label class="field-label" for="task-date">Дата решения <span>*</span></label><input type="date" id="task-date" name="date" required></div><div><label class="field-label" for="task-minutes">Время, мин</label><input type="number" id="task-minutes" name="minutes" min="1" max="1440" placeholder="Необязательно"></div></div>
+   <p id="rating-caption" class="field-hint">У CSES нет официального рейтинга CF. Оценки сложности помечены как авторские.</p>
+   <fieldset class="topic-picker"><legend class="field-label">Темы задачи</legend><div id="topic-options"></div></fieldset>
+   <label class="field-label" for="task-notes">Что забрать с собой?</label><textarea id="task-notes" name="notes" rows="2" maxlength="2000" placeholder="Идея, ошибка или то, что хочется повторить…"></textarea>
+   <p id="task-error" class="form-error" role="alert" hidden></p><div class="dialog-actions"><button type="button" class="button secondary" data-close>Отмена</button><button type="submit" class="button primary" id="save-task">Сохранить задачу <span>↗</span></button></div>
+  </form>
+ </dialog>
+ <dialog id="confirm-dialog" aria-labelledby="confirm-title"><div class="dialog-heading"><h2 id="confirm-title">Удалить задачу?</h2><button class="icon-button" data-close aria-label="Закрыть">✕</button></div><p id="confirm-text"></p><div class="dialog-actions"><button class="button secondary" data-close>Отмена</button><button class="button danger" id="confirm-delete">Удалить</button></div></dialog>
+ <div id="toast" role="status" aria-live="polite" hidden></div>
+ <input type="file" id="import-file" accept="application/json,.json" hidden>
+ <script type="module" src="./app.js"></script>
+</body></html>

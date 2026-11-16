@@ -1,0 +1,39 @@
+export const TOPICS={basics:'База и реализация',search:'Поиск и жадные',dp:'Динамика',graphs:'Графы',structures:'Структуры данных',trees:'Деревья',math:'Математика',strings:'Строки',geometry:'Геометрия',other:'Другое'};
+const tagMap={'implementation':'basics','brute force':'basics','constructive algorithms':'basics','greedy':'search','binary search':'search','two pointers':'search','sortings':'search','dp':'dp','graphs':'graphs','dfs and similar':'graphs','shortest paths':'graphs','flows':'graphs','graph matchings':'graphs','dsu':'structures','data structures':'structures','trees':'trees','math':'math','number theory':'math','combinatorics':'math','probabilities':'math','games':'math','bitmasks':'math','strings':'strings','string suffix structures':'strings','hashing':'strings','geometry':'geometry'};
+export const DEFAULT_SETTINGS={thresholds:[293,405,476],spread:75,statsWeight:0.25};
+export const today=()=>localDate(new Date());
+export function localDate(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+export function topicsFor(tags=[]){return [...new Set(tags.map(t=>TOPICS[t]?t:tagMap[t]).filter(Boolean))];}
+export function taskUrl(platform,id){if(platform==='cses')return `https://cses.fi/problemset/task/${id}/`;const m=/^(\d+)([A-Z]\d?)$/.exec(id);return m?`https://codeforces.com/problemset/problem/${m[1]}/${m[2]}`:'';}
+export function parseIdentifier(value,platform){const s=value.trim();let m;if(/^https?:\/\//i.test(s)){let u;try{u=new URL(s);}catch{throw Error('Проверь ссылку на задачу.');}if(/^(www\.)?codeforces\.com$/.test(u.hostname)){m=/\/(?:problemset\/problem\/(\d+)\/([a-z]\d?)|contest\/(\d+)\/problem\/([a-z]\d?))\/?$/i.exec(u.pathname);if(!m)throw Error('Поддерживаются задачи из основного архива Codeforces.');return {platform:'cf',id:(m[1]||m[3])+(m[2]||m[4]).toUpperCase()};}if(/^(www\.)?cses\.fi$/.test(u.hostname)){m=/\/problemset\/task\/(\d+)\/?$/.exec(u.pathname);if(m)return {platform:'cses',id:m[1]};}throw Error('Вставь ссылку Codeforces или CSES.');}if(platform==='cses'&&/^\d{1,7}$/.test(s))return {platform,id:String(Number(s))};m=/^(\d{1,7})\s*([a-z]\d?)$/i.exec(s);if(m)return {platform:'cf',id:m[1]+m[2].toUpperCase()};throw Error(platform==='cses'?'Введи номер CSES, например 1634.':'Введи номер, например 1900C, или полную ссылку.');}
+export function validateTask(raw){
+ if(!raw||typeof raw!=='object')throw Error('Некорректная запись задачи.');
+ const platform=raw.platform;if(!['cf','cses'].includes(platform))throw Error('Неизвестная платформа.');
+ const parsed=parseIdentifier(String(raw.id||''),platform);const {id}=parsed;if(parsed.platform!==platform)throw Error('Номер не соответствует выбранной платформе.');
+ if(!['own','editorial'].includes(raw.mode))throw Error('Выбери способ решения.');
+ const date=String(raw.date||'');if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||Number.isNaN(Date.parse(date))||localDate(new Date(date+'T12:00:00'))!==date||date>today()||date<'2000-01-01')throw Error('Укажи корректную дату решения, не позднее сегодняшней.');
+ const rating=raw.rating==null||raw.rating===''?null:Number(raw.rating);if(rating!==null&&(!Number.isFinite(rating)||rating<800||rating>4000||rating%50))throw Error('Сложность должна быть от 800 до 4000 с шагом 50.');
+ const minutes=raw.minutes==null||raw.minutes===''?null:Number(raw.minutes);if(minutes!==null&&(!Number.isInteger(minutes)||minutes<1||minutes>1440))throw Error('Время решения: от 1 до 1440 минут.');
+ const name=String(raw.name||'').trim().slice(0,180);if(!name)throw Error('Добавь название задачи.');
+ return {uid:`${platform}:${id}`,platform,id,name,mode:raw.mode,date,rating,minutes,tags:topicsFor(Array.isArray(raw.tags)?raw.tags.filter(x=>typeof x==='string'):[]),notes:String(raw.notes||'').slice(0,2000),ratingSource:raw.ratingSource==='official'&&platform==='cf'?'official':'estimate'};
+}
+export function validateSettings(raw={}){const thresholds=raw.thresholds||DEFAULT_SETTINGS.thresholds;const spread=Number(raw.spread??75),statsWeight=Number(raw.statsWeight??0.25);if(!Array.isArray(thresholds)||thresholds.length!==3||thresholds.some(x=>typeof x!=='number'||!Number.isFinite(x)||x<1||x>800)||!(thresholds[0]<thresholds[1]&&thresholds[1]<thresholds[2]))throw Error('Пороги должны возрастать: III < II < I, от 1 до 800.');if(!Number.isFinite(spread)||spread<30||spread>180)throw Error('Неопределённость: от 30 до 180 баллов.');if(!Number.isFinite(statsWeight)||statsWeight<0||statsWeight>0.5)throw Error('Вес статистики: от 0 до 0.5.');return {thresholds:[...thresholds],spread,statsWeight};}
+export function parseBackup(text){const data=JSON.parse(text);if(!data||data.app!=='final-tracker'||data.version!==1||!Array.isArray(data.tasks)||data.tasks.length>20000)throw Error('Это не резервная копия Финала или превышен лимит записей.');const tasks=data.tasks.map(validateTask);if(new Set(tasks.map(x=>x.uid)).size!==tasks.length)throw Error('В копии есть дубли задач.');return {tasks,settings:validateSettings(data.settings),year:[2024,2025,2026].includes(data.year)?data.year:2026};}
+const sigmoid=x=>1/(1+Math.exp(-x));
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+function normalCDF(x){const a=Math.abs(x);const t=1/(1+0.2316419*a);const poly=t*(0.319381530+t*(-0.356563782+t*(1.781477937+t*(-1.821255978+t*1.330274429))));const c=1-Math.exp(-a*a/2)/Math.sqrt(2*Math.PI)*poly;return x<0?1-c:c;}
+export function probabilities(mean,sigma,thresholds){const atLeast=thresholds.map(t=>1-normalCDF((t-mean)/sigma));const p=[atLeast[2],atLeast[1]-atLeast[2],atLeast[0]-atLeast[1],1-atLeast[0]].map(x=>clamp(x,0,1));const raw=p.map(x=>x*100),out=raw.map(Math.floor);let remainder=100-out.reduce((a,b)=>a+b,0);const order=raw.map((v,i)=>({i,r:v-out[i]})).sort((a,b)=>b.r-a.r);for(let j=0;j<remainder;j++)out[order[j].i]++;return out;}
+export function analyze(tasks,settings=DEFAULT_SETTINGS,now=new Date(),benchmarks=[]){
+ const own=tasks.filter(x=>x.mode==='own');const assisted=tasks.filter(x=>x.mode==='editorial');
+ const eligible=own.filter(x=>x.rating!=null&&(now-new Date(x.date+'T12:00:00'))/86400000<=365);
+ const topicStats=Object.keys(TOPICS).filter(x=>x!=='other').map(key=>({key,name:TOPICS[key],own:own.filter(x=>x.tags.includes(key)).length,editorial:assisted.filter(x=>x.tags.includes(key)).length}));
+ const coverage=topicStats.filter(x=>x.own>=2).length;
+ if(eligible.length<3)return {available:false,own:own.length,assisted:assisted.length,eligible:eligible.length,topicStats,coverage};
+ let skill=null,mean=0,sigma=0,source='tasks',taskPredictions=[];
+ if(eligible.length>=3){const rows=eligible.map(t=>{const age=Math.max(0,(now-new Date(t.date+'T12:00:00'))/86400000);return {rating:t.rating,w:Math.pow(0.5,age/180)*(t.ratingSource==='official'?1:0.65)};}).sort((a,b)=>b.rating-a.rating).slice(0,20);const total=rows.reduce((s,x)=>s+x.w,0);const observed=rows.reduce((s,x)=>s+x.rating*x.w,0)/total;const strength=total/(total+5);skill=1100+(observed-1100)*strength;
+  if(benchmarks.length){taskPredictions=benchmarks.map(t=>{const gap=t.topics.some(k=>topicStats.find(x=>x.key===k)?.own>=2)?0:100;const author=t.bands.reduce((s,b)=>s+b.points*sigmoid((skill-b.rating-gap)/240),0);const q=clamp((t.stats?.mean??50)/100,0.005,0.995);const empirical=100*sigmoid(Math.log(q/(1-q))+(skill-gap-1900)/350);const w=settings.statsWeight??0.25;return {day:t.day,index:t.index,score:Math.round(author*(1-w)+empirical*w)};});mean=taskPredictions.reduce((s,t)=>s+t.score,0);}
+  else mean=800*sigmoid((skill-1900)/450);
+  sigma=settings.spread+75/Math.sqrt(total+1)+Math.max(0,5-coverage)*5;
+ }
+ mean=clamp(mean,0,800);sigma=Math.max(30,sigma);return {available:true,mean:Math.round(mean),sigma:Math.round(sigma),skill:skill===null?null:Math.round(skill),p:probabilities(mean,sigma,settings.thresholds),own:own.length,assisted:assisted.length,eligible:eligible.length,topicStats,coverage,source,taskPredictions};
+}
