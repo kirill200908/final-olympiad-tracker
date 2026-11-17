@@ -26,19 +26,48 @@ function normalCDF(x){const a=Math.abs(x);const t=1/(1+0.2316419*a);const poly=t
 export function probabilityFractions(mean,sigma,thresholds){const atLeast=thresholds.map(t=>1-normalCDF((t-mean)/sigma));return [atLeast[2],atLeast[1]-atLeast[2],atLeast[0]-atLeast[1],1-atLeast[0]].map(x=>clamp(x,0,1));}
 export function roundPercentages(fractions,digits=0){const scale=10**digits;const raw=fractions.map(x=>x*100*scale),out=raw.map(Math.floor);const remainder=100*scale-out.reduce((a,b)=>a+b,0);const order=raw.map((v,i)=>({i,r:v-out[i]})).sort((a,b)=>b.r-a.r);for(let j=0;j<remainder;j++)out[order[j%order.length].i]++;return out.map(x=>x/scale);}
 export function probabilities(mean,sigma,thresholds){return roundPercentages(probabilityFractions(mean,sigma,thresholds));}
+export function taskProbabilities(skill,task,{gap=0,statsWeight=0.25}={}){
+ const bands=task.bands,range=task.range;
+ const fullRating=range?.length===2?(range[0]+range[1])/2:bands.at(-1).rating;
+ const logits=bands.map((b,i)=>(skill-(i===bands.length-1?fullRating:b.rating)-gap)/240);
+ const expected=offset=>bands.reduce((sum,b,i)=>sum+b.points*sigmoid(logits[i]+offset),0);
+ const author=expected(0),q=clamp((task.stats?.mean??50)/100,0.005,0.995);
+ const empirical=100*sigmoid(Math.log(q/(1-q))+(skill-gap-1900)/350);
+ const target=author*(1-statsWeight)+empirical*statsWeight;
+ // One shared odds adjustment preserves nested partial-score milestones while
+ // retaining the configured blend of CF difficulty and historical mean score.
+ let offset=0;
+ if(statsWeight>0){let low=-30,high=30;for(let i=0;i<48;i++){const mid=(low+high)/2;if(expected(mid)<target)low=mid;else high=mid;}offset=(low+high)/2;}
+ const chances=logits.map(x=>sigmoid(x+offset));
+ const distribution=[{score:0,p:1-chances[0]}];let score=0;
+ bands.forEach((band,i)=>{score+=band.points;distribution.push({score:Math.round(score),p:chances[i]-(chances[i+1]??0)});});
+ const fullProbability=chances.at(-1);
+ const probabilityRange=range?.length===2?[sigmoid((skill-range[1]-gap)/240+offset),sigmoid((skill-range[0]-gap)/240+offset)]:[fullProbability,fullProbability];
+ return {day:task.day,index:task.index,score:Math.round(expected(offset)),expectedScore:expected(offset),fullProbability,anyPointsProbability:chances[0],probabilityRange,distribution};
+}
+export function sumScoreDistributions(distributions){
+ let totals=[1];
+ for(const outcomes of distributions){const next=Array(totals.length+Math.max(...outcomes.map(x=>x.score))).fill(0);for(let score=0;score<totals.length;score++){if(!totals[score])continue;for(const outcome of outcomes)next[score+outcome.score]+=totals[score]*outcome.p;}totals=next;}
+ return totals;
+}
+export function distributionFractions(distribution,sigma,thresholds){
+ const fractions=[0,0,0,0];
+ distribution.forEach((mass,score)=>{if(!mass)return;const outcomes=sigma>0?probabilityFractions(score,sigma,thresholds):[score>=thresholds[2]?1:0,score>=thresholds[1]&&score<thresholds[2]?1:0,score>=thresholds[0]&&score<thresholds[1]?1:0,score<thresholds[0]?1:0];outcomes.forEach((p,i)=>fractions[i]+=mass*p);});
+ return fractions;
+}
 export function analyze(tasks,settings=DEFAULT_SETTINGS,now=new Date(),benchmarks=[]){
  const own=tasks.filter(x=>x.mode==='own');const assisted=tasks.filter(x=>x.mode==='editorial');
  const eligible=own.filter(x=>x.rating!=null&&(now-new Date(x.date+'T12:00:00'))/86400000<=365);
  const topicStats=Object.keys(TOPICS).filter(x=>x!=='other').map(key=>({key,name:TOPICS[key],own:own.filter(x=>x.tags.includes(key)).length,editorial:assisted.filter(x=>x.tags.includes(key)).length}));
  const coverage=topicStats.filter(x=>x.own>=2).length;
  if(eligible.length===0)return {available:false,own:own.length,assisted:assisted.length,eligible:eligible.length,topicStats,coverage};
- let skill=null,mean=0,sigma=0,source='tasks',taskPredictions=[];
+ let skill=null,mean=0,sigma=0,source='tasks',taskPredictions=[],scoreDistribution=null;
  if(eligible.length>=1){const rows=eligible.map(t=>{const age=Math.max(0,(now-new Date(t.date+'T12:00:00'))/86400000);return {rating:t.rating,w:Math.pow(0.5,age/180)*(t.ratingSource==='official'?1:0.65)};}).sort((a,b)=>b.rating-a.rating).slice(0,20);const total=rows.reduce((s,x)=>s+x.w,0);const observed=rows.reduce((s,x)=>s+x.rating*x.w,0)/total;const strength=total/(total+5);skill=1100+(observed-1100)*strength;
-  if(benchmarks.length){taskPredictions=benchmarks.map(t=>{const gap=t.topics.some(k=>topicStats.find(x=>x.key===k)?.own>=2)?0:100;const author=t.bands.reduce((s,b)=>s+b.points*sigmoid((skill-b.rating-gap)/240),0);const q=clamp((t.stats?.mean??50)/100,0.005,0.995);const empirical=100*sigmoid(Math.log(q/(1-q))+(skill-gap-1900)/350);const w=settings.statsWeight??0.25;return {day:t.day,index:t.index,score:Math.round(author*(1-w)+empirical*w)};});mean=taskPredictions.reduce((s,t)=>s+t.score,0);}
+  if(benchmarks.length){taskPredictions=benchmarks.map(t=>taskProbabilities(skill,t,{gap:t.topics.some(k=>topicStats.find(x=>x.key===k)?.own>=2)?0:100,statsWeight:settings.statsWeight??0.25}));scoreDistribution=sumScoreDistributions(taskPredictions.map(t=>t.distribution));mean=taskPredictions.reduce((s,t)=>s+t.expectedScore,0);}
   else mean=800*sigmoid((skill-1900)/450);
   sigma=settings.spread+75/Math.sqrt(total+1)+Math.max(0,5-coverage)*5;
  }
- mean=clamp(mean,0,800);sigma=Math.max(30,sigma);return {available:true,mean:Math.round(mean),sigma:Math.round(sigma),skill:skill===null?null:Math.round(skill),p:probabilities(mean,sigma,settings.thresholds),own:own.length,assisted:assisted.length,eligible:eligible.length,topicStats,coverage,source,taskPredictions};
+ mean=clamp(mean,0,800);sigma=Math.max(30,sigma);const fractions=scoreDistribution?distributionFractions(scoreDistribution,sigma,settings.thresholds):probabilityFractions(mean,sigma,settings.thresholds);return {available:true,mean:Math.round(mean),sigma:Math.round(sigma),skill:skill===null?null:Math.round(skill),p:roundPercentages(fractions),fractions,scoreDistribution,own:own.length,assisted:assisted.length,eligible:eligible.length,topicStats,coverage,source,taskPredictions};
 }
 export const FORECAST_2027_WEIGHTS=Object.freeze({2024:0.2,2025:0.3,2026:0.5});
 export function forecast2027(tasks,history,settings=DEFAULT_SETTINGS,now=new Date()){
@@ -47,6 +76,6 @@ export function forecast2027(tasks,history,settings=DEFAULT_SETTINGS,now=new Dat
  const scenarios=years.map(y=>({year:y.year,weight:FORECAST_2027_WEIGHTS[y.year],...analyze(tasks,{...settings,thresholds:y.cutoffs},now,y.tasks)}));
  const base=scenarios[0];
  if(!base.available)return {...base,targetYear:2027,scenarios,confidence:'Нет данных'};
- const fractions=[0,0,0,0];for(let i=0;i<scenarios.length;i++){const s=scenarios[i];probabilityFractions(s.mean,s.sigma,years[i].cutoffs).forEach((p,j)=>fractions[j]+=s.weight*p);}
+ const fractions=[0,0,0,0];for(const scenario of scenarios)scenario.fractions.forEach((p,j)=>fractions[j]+=scenario.weight*p);
  return {...base,targetYear:2027,p:roundPercentages(fractions,1),fractions,mean:Math.round(scenarios.reduce((sum,s)=>sum+s.mean*s.weight,0)),scenarios,confidence:base.eligible<5?'Очень мало данных':base.eligible<15?'Мало данных':'Предварительная оценка'};
 }
