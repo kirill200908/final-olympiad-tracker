@@ -26,24 +26,40 @@ function normalCDF(x){const a=Math.abs(x);const t=1/(1+0.2316419*a);const poly=t
 export function probabilityFractions(mean,sigma,thresholds){const atLeast=thresholds.map(t=>1-normalCDF((t-mean)/sigma));return [atLeast[2],atLeast[1]-atLeast[2],atLeast[0]-atLeast[1],1-atLeast[0]].map(x=>clamp(x,0,1));}
 export function roundPercentages(fractions,digits=0){const scale=10**digits;const raw=fractions.map(x=>x*100*scale),out=raw.map(Math.floor);const remainder=100*scale-out.reduce((a,b)=>a+b,0);const order=raw.map((v,i)=>({i,r:v-out[i]})).sort((a,b)=>b.r-a.r);for(let j=0;j<remainder;j++)out[order[j%order.length].i]++;return out.map(x=>x/scale);}
 export function probabilities(mean,sigma,thresholds){return roundPercentages(probabilityFractions(mean,sigma,thresholds));}
+export function outputScoreDistribution(skill,histogram,maximum){
+ // Historical output-only scores have no CF full-solution difficulty. Two
+ // endpoint pseudo-observations avoid treating unobserved extremes as impossible.
+ const counts=new Map(histogram.map(x=>[x.score,x.count]));
+ counts.set(0,(counts.get(0)||0)+1);counts.set(maximum,(counts.get(maximum)||0)+1);
+ const rows=[...counts].sort((a,b)=>a[0]-b[0]).map(([score,count])=>({score,p:count*Math.exp((skill-1900)/350*score/maximum)}));
+ const mass=rows.reduce((s,x)=>s+x.p,0);return rows.map(x=>({score:x.score,p:x.p/mass}));
+}
+function outputPrediction(skill,task,gap){
+ const distribution=outputScoreDistribution(skill-gap,task.outputDistribution,100);
+ const expectedScore=distribution.reduce((s,x)=>s+x.score*x.p,0),fullProbability=distribution.find(x=>x.score===100)?.p||0;
+ return {day:task.day,index:task.index,score:Math.round(expectedScore),expectedScore,fullProbability,anyPointsProbability:1-(distribution.find(x=>x.score===0)?.p||0),probabilityRange:[fullProbability,fullProbability],distribution,model:'output-only'};
+}
 export function taskProbabilities(skill,task,{gap=0,statsWeight=0.25}={}){
- const bands=task.bands,range=task.range;
+ if(task.ratingKind==='output-only')return outputPrediction(skill,task,gap);
+ const bands=task.ratedBands||task.bands,range=task.range,maximum=task.ratedPoints||100;
  const fullRating=range?.length===2?(range[0]+range[1])/2:bands.at(-1).rating;
  const logits=bands.map((b,i)=>(skill-(i===bands.length-1?fullRating:b.rating)-gap)/240);
  const expected=offset=>bands.reduce((sum,b,i)=>sum+b.points*sigmoid(logits[i]+offset),0);
- const author=expected(0),q=clamp((task.stats?.mean??50)/100,0.005,0.995);
- const empirical=100*sigmoid(Math.log(q/(1-q))+(skill-gap-1900)/350);
+ const author=expected(0),q=clamp((task.ratedStats?.mean??task.stats?.mean??maximum/2)/maximum,0.005,0.995);
+ const empirical=maximum*sigmoid(Math.log(q/(1-q))+(skill-gap-1900)/350);
  const target=author*(1-statsWeight)+empirical*statsWeight;
  // One shared odds adjustment preserves nested partial-score milestones while
  // retaining the configured blend of CF difficulty and historical mean score.
  let offset=0;
  if(statsWeight>0){let low=-30,high=30;for(let i=0;i<48;i++){const mid=(low+high)/2;if(expected(mid)<target)low=mid;else high=mid;}offset=(low+high)/2;}
  const chances=logits.map(x=>sigmoid(x+offset));
- const distribution=[{score:0,p:1-chances[0]}];let score=0;
+ let distribution=[{score:0,p:1-chances[0]}];let score=0;
  bands.forEach((band,i)=>{score+=band.points;distribution.push({score:Math.round(score),p:chances[i]-(chances[i+1]??0)});});
- const fullProbability=chances.at(-1);
- const probabilityRange=range?.length===2?[sigmoid((skill-range[1]-gap)/240+offset),sigmoid((skill-range[0]-gap)/240+offset)]:[fullProbability,fullProbability];
- return {day:task.day,index:task.index,score:Math.round(expected(offset)),expectedScore:expected(offset),fullProbability,anyPointsProbability:chances[0],probabilityRange,distribution};
+ let fullProbability=chances.at(-1),expectedScore=expected(offset);
+ let probabilityRange=range?.length===2?[sigmoid((skill-range[1]-gap)/240+offset),sigmoid((skill-range[0]-gap)/240+offset)]:[fullProbability,fullProbability];
+ const ratedFullProbability=fullProbability;
+ if(task.outputOnlyPoints){const output=outputScoreDistribution(skill-gap,task.outputDistribution,task.outputOnlyPoints),outputFull=output.find(x=>x.score===task.outputOnlyPoints)?.p||0;distribution=sumScoreDistributions([distribution,output]).flatMap((p,score)=>p?[{score,p}]:[]);fullProbability*=outputFull;probabilityRange=probabilityRange.map(p=>p*outputFull);expectedScore=distribution.reduce((s,x)=>s+x.score*x.p,0);}
+ return {day:task.day,index:task.index,score:Math.round(expectedScore),expectedScore,fullProbability,anyPointsProbability:1-distribution[0].p,probabilityRange,distribution,ratedFullProbability,ratedPoints:maximum,model:task.outputOnlyPoints?'mixed':'cf'};
 }
 export function sumScoreDistributions(distributions){
  let totals=[1];
